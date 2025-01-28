@@ -1,0 +1,8 @@
+streamlit>=1.29.0
+python-telegram-bot>=20.7
+telethon>=1.33.1
+google-cloud-bigquery>=3.13.0
+google-auth>=2.25.2
+python-dotenv>=1.0.0
+asyncio>=3.4.3
+logging>=0.4.9.6
