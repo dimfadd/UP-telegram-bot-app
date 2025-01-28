@@ -11,6 +11,11 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 import logging
 import os
+import json
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Set up logging
 logging.basicConfig(
@@ -267,6 +272,32 @@ class TelegramBotValidator:
             self._running = False
             self._stop_event.set()
 
+def get_bigquery_credentials():
+    """Get BigQuery credentials from environment variable or file."""
+    try:
+        # First try to get from environment variable
+        credential_json = os.getenv('BIGQUERY_CREDENTIALS', '')
+        if credential_json:
+            credentials_dict = json.loads(credential_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_dict,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+        else:
+            st.error("BigQuery credentials not found in environment variables")
+        
+        # If not found, try to get from file
+        credential_path = os.getenv('BIGQUERY_CREDENTIALS_PATH', 
+            'credentials/bigquery-credentials.json')
+        if os.path.exists(credential_path):
+            with open(credential_path, 'r') as f:
+                return json.load(f)
+        
+        raise FileNotFoundError("BigQuery credentials not found")
+    except Exception as e:
+        st.error(f"Error loading BigQuery credentials: {str(e)}")
+        return None
+
 class BigQueryScraper:
     def __init__(self, api_id, api_hash, group_chat_id, credential_path, table_id):
         self.api_id = api_id
@@ -462,26 +493,30 @@ class BigQueryScraper:
             self.message_queue.put(error_msg)
 
     async def initialize(self):
-        try:
-            # Initialize BigQuery client
-            credentials = service_account.Credentials.from_service_account_file(
-                self.credential_path,
-                scopes=["https://www.googleapis.com/auth/cloud-platform"],
-            )
-            self.bq_client = bigquery.Client(credentials=credentials, project=credentials.project_id)
+    try:
+        # Initialize BigQuery client
+        credentials_dict = get_bigquery_credentials()
+        if not credentials_dict:
+            raise Exception("Could not load BigQuery credentials")
             
-            # Initialize Telegram client
-            self.telegram_client = TelegramClient('scraper_session', self.api_id, self.api_hash)
-            await self.telegram_client.start()
-            
-            # Initialize existing message IDs set
-            self.existing_ids = self.get_existing_message_ids()
-            logger.info(f"Loaded {len(self.existing_ids)} existing message IDs from BigQuery")
-            
-            return True
-        except Exception as e:
-            logger.error(f"Initialization error: {str(e)}")
-            return False
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_dict,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        self.bq_client = bigquery.Client(credentials=credentials, project=credentials.project_id)
+        
+        # Initialize Telegram client
+        self.telegram_client = TelegramClient('scraper_session', self.api_id, self.api_hash)
+        await self.telegram_client.start()
+        
+        # Initialize existing message IDs set
+        self.existing_ids = self.get_existing_message_ids()
+        logger.info(f"Loaded {len(self.existing_ids)} existing message IDs from BigQuery")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Initialization error: {str(e)}")
+        return False
 
     def run(self):
         def run_scraper():
